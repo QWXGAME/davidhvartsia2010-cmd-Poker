@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#050203" />
+  <title>QWX POKER — закрытый клуб</title>
+  <meta name="description" content="Подпольный покер-клуб в 3D: Texas Hold'em с друзьями прямо в браузере" />
+  <!-- самое тяжёлое качаем сразу, параллельно с кодом: модель рук, их текстуры, сукно и бортик -->
+  <link rel="preload" href="models/hands.bin" as="fetch" crossorigin />
+  <link rel="preload" href="models/hand_diffuse.jpg" as="image" />
+  <link rel="preload" href="textures/manifest.json" as="fetch" crossorigin />
+  <link rel="preload" href="textures/felt-56172a-2048.map.webp" as="image" />
+  <link rel="preload" href="textures/railwood-1024.map.webp" as="image" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <!-- шрифты: Bodoni Moda — заголовки клуба, Manrope — интерфейс, Playfair — индексы карт и надписи кнопок -->
+  <link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,500;0,6..96,700;0,6..96,800;1,6..96,500;1,6..96,600&family=Manrope:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;0,700;1,500;1,600&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <div class="splash" id="splash">
+    <div class="splash-glow"></div>
+    <div class="logo">
+      <div class="suits"><i>♠</i><i class="r">♥</i><i>♣</i><i class="r">♦</i></div>
+      <h1><span>Q</span><span>W</span><span>X</span><em>POKER</em></h1>
+      <p>закрытый клуб</p>
+    </div>
+    <div class="loader">
+      <div class="track"><div class="fill" id="load-bar"></div></div>
+      <div class="meta"><span id="load-label" class="in">Открываем двери клуба</span><b id="load-pct">0%</b></div>
+    </div>
+  </div>
+  <div id="stage"></div>
+  <div class="vignette"></div>
+  <div class="grain"></div>
+  <script type="module" src="/src/client/main.ts"></script>
+</body>
+</html>

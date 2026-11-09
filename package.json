@@ -1,0 +1,31 @@
+{
+  "name": "qwx-poker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "QWX POKER — 3D Texas Hold'em в браузере",
+  "scripts": {
+    "dev": "vite --host",
+    "dev:server": "tsx watch src/server/index.ts",
+    "build": "vite build",
+    "start": "tsx src/server/index.ts",
+    "test": "tsx src/shared/engine.test.ts",
+    "typecheck": "tsc --noEmit",
+    "bake": "python3 tools/bake.py"
+  },
+  "dependencies": {
+    "three": "^0.170.0",
+    "tsx": "^4.19.0",
+    "ws": "^8.18.0",
+    "vite": "^5.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/three": "^0.170.0",
+    "@types/ws": "^8.5.12",
+    "typescript": "^5.6.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

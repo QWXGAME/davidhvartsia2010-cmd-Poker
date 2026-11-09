@@ -1,0 +1,26 @@
+# Render Blueprint: сервер QWX POKER (игра + онлайн + вход Telegram)
+services:
+  - type: web
+    name: qwx-poker
+    runtime: node
+    plan: starter            # бесплатный план засыпает и стирает файлы — для баланса игроков нужен starter + диск
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: DATA_DIR
+        value: /var/data
+      - key: PUBLIC_URL
+        sync: false          # адрес сайта с игрой, например https://unrivaled-raindrop-2e90b7.netlify.app
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_BOT_NAME
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+    disk:
+      name: qwx-data
+      mountPath: /var/data
+      sizeGB: 1

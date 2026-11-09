@@ -1,0 +1,9 @@
+# Сайт игры на Netlify. В Site settings → Environment variables задайте
+#   VITE_SERVER_URL = https://qwx-poker.onrender.com   (адрес сервера на Render)
+# и пересоберите сайт — игра подключится к онлайну.
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"

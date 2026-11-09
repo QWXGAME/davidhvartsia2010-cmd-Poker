@@ -1,0 +1,12 @@
+# Amvera Cloud: сборка по Dockerfile, игра на порту 80, данные игроков — в постоянном хранилище /data
+meta:
+  environment: docker
+  toolchain:
+    name: docker
+    version: latest
+build:
+  dockerfile: Dockerfile
+  skip: false
+run:
+  persistenceMount: /data
+  containerPort: 80
