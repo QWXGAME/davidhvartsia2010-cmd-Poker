@@ -1,0 +1,193 @@
+/* ═════════ 2D-стол QWX: лак, латунь, бархат и тёплая лампа — всё на CSS, анимации только transform/opacity ═════════ */
+
+.t2d {
+  --felt: #56172a;
+  --back: #141a28; --back-line: rgba(190,198,214,.42); --back-frame: #d6dce8;
+  --chip: 22px;
+  position: fixed; inset: 0; z-index: 0; overflow: hidden; contain: strict;
+  background:
+    radial-gradient(ellipse 60% 55% at 50% 42%, rgba(255,214,150,.13), transparent 70%),
+    radial-gradient(ellipse at 50% 120%, rgba(90,30,20,.35), transparent 60%),
+    repeating-linear-gradient(90deg, rgba(255,255,255,.012) 0 2px, transparent 2px 140px),
+    linear-gradient(180deg, #120709 0%, #0a0406 55%, #060203 100%);
+}
+/* мягкая виньетка и пылинки в луче лампы */
+.t2d::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 45%, transparent 45%, rgba(0,0,0,.7) 100%); }
+.t2d::before { content: ''; position: absolute; left: 50%; top: -10%; width: 70vmax; height: 70vmax; transform: translateX(-50%); pointer-events: none;
+  background: radial-gradient(circle, rgba(255,226,170,.08), transparent 60%); animation: t2lamp 7s ease-in-out infinite; }
+@keyframes t2lamp { 50% { opacity: .75; } }
+
+/* ── стол ── */
+.t2d-table {
+  position: absolute; left: 50%; top: 47%;
+  width: min(84vw, calc((100vh - 240px) * 1.95)); aspect-ratio: 1.95;
+  transform: translate(-50%, -50%);
+  transition: transform .9s cubic-bezier(.2,.8,.2,1), filter .9s ease;
+}
+.t2d.tall .t2d-table { top: calc(50% - 64px); width: min(80vw, calc((100svh - 330px) * .62)); aspect-ratio: .62; }
+.t2d .t2-rail, .t2d .t2-felt { position: absolute; border-radius: 9999px; }
+/* борт: махагон под лаком, латунная вставка, мягкая кожаная кромка */
+.t2d .t2-rail {
+  inset: -5.5%;
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(255,200,150,.18), transparent 55%),
+    linear-gradient(160deg, #4a1a0c 0%, #2a0d06 45%, #170604 100%);
+  box-shadow: 0 40px 80px rgba(0,0,0,.65), 0 10px 22px rgba(0,0,0,.5), inset 0 2px 0 rgba(255,210,170,.22), inset 0 -3px 6px rgba(0,0,0,.6);
+}
+.t2d.tall .t2d-table .t2-rail { inset: -5% -9%; }
+.t2d .t2-rail .lac { position: absolute; inset: 7% 8% auto 8%; height: 18%; border-radius: 50%; background: linear-gradient(180deg, rgba(255,240,220,.22), transparent); filter: blur(2px); }
+.t2d .t2-felt {
+  inset: 0; overflow: hidden;
+  background:
+    radial-gradient(ellipse at 50% 38%, color-mix(in srgb, var(--felt) 78%, #fff 12%), var(--felt) 52%, color-mix(in srgb, var(--felt) 62%, #000) 100%);
+  box-shadow: 0 0 0 2px #b8955a, 0 0 0 3px #3a1a0c, inset 0 0 0 1px rgba(255,230,190,.12), inset 0 10px 40px rgba(0,0,0,.55), inset 0 -6px 26px rgba(0,0,0,.4);
+}
+.t2d .t2-felt .weave { position: absolute; inset: 0; opacity: .5; mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='a'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .55 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23a)'/%3E%3C/svg%3E"); }
+.t2d .t2-felt .line { position: absolute; inset: 11% 9%; border-radius: 9999px; border: 1px solid rgba(232,211,162,.22); box-shadow: 0 0 0 5px rgba(232,211,162,.035); }
+.t2d.tall .t2-felt .line { inset: 8% 11%; }
+.t2d .crest { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); text-align: center; color: rgba(255,232,190,.1); line-height: 1; pointer-events: none; }
+.t2d .crest span { display: block; font-size: clamp(26px, 5vw, 46px); }
+.t2d .crest b { display: block; font: 800 clamp(28px, 6vw, 60px) var(--serif); letter-spacing: .14em; }
+.t2d .crest em { display: block; margin-top: 6px; font: italic 600 clamp(10px, 1.4vw, 14px) var(--serif); letter-spacing: .4em; }
+
+.t2d-layer { position: absolute; inset: 0; pointer-events: none; }
+
+/* ── места соперников: печатка с монограммой ── */
+.t2d-seat { position: absolute; transform: translate(-50%, -50%); transition: opacity .5s, filter .5s; z-index: 2; }
+.t2d-seat.empty { opacity: 0; pointer-events: none; }
+.t2d-seat .ava { position: relative; width: clamp(44px, 5.4vw, 58px); aspect-ratio: 1; border-radius: 50%; display: grid; place-items: center;
+  background: radial-gradient(circle at 50% 36%, #3a1a22, #12070a 72%); border: 1px solid rgba(232,211,162,.65);
+  box-shadow: inset 0 0 0 3px #12070a, inset 0 0 0 4px rgba(232,211,162,.3), 0 0 0 3px rgba(10,5,7,.85), 0 10px 22px rgba(0,0,0,.6); }
+.t2d-seat .ava span { font: italic 700 clamp(18px, 2.3vw, 24px) var(--serif); color: var(--gold, #e8d3a2); text-shadow: 0 1px 0 #000; }
+.t2d-seat.bot .ava { background: radial-gradient(circle at 50% 36%, #22161a, #0b0607 72%); }
+.t2d-seat.folded { opacity: .42; filter: grayscale(.7); }
+/* чей ход — золотое кольцо бежит по кругу */
+.t2d-seat .ava::after { content: ''; position: absolute; inset: -6px; border-radius: 50%; opacity: 0; transition: opacity .3s;
+  background: conic-gradient(from 0deg, transparent 0 55%, rgba(246,232,200,.95) 80%, transparent 100%);
+  -webkit-mask: radial-gradient(circle, transparent 62%, #000 64%); mask: radial-gradient(circle, transparent 62%, #000 64%); }
+.t2d-seat.active .ava::after { opacity: 1; animation: t2spin 1.6s linear infinite; }
+.t2d-seat.active .ava { box-shadow: inset 0 0 0 3px #12070a, inset 0 0 0 4px rgba(232,211,162,.5), 0 0 0 3px rgba(10,5,7,.85), 0 0 26px rgba(232,211,162,.35); }
+@keyframes t2spin { to { transform: rotate(360deg); } }
+.t2d-seat.won .ava { animation: t2wonPop 1.2s cubic-bezier(.2,1.4,.4,1); box-shadow: 0 0 0 3px rgba(10,5,7,.85), 0 0 40px rgba(246,232,200,.7); }
+@keyframes t2wonPop { 30% { transform: scale(1.18); } }
+.t2d-seat.allin-pop .ava { animation: t2wonPop .9s cubic-bezier(.2,1.4,.4,1); }
+
+/* ── карты ── */
+.t2card { position: absolute; left: 0; top: 0; width: var(--cw, 60px); aspect-ratio: 5 / 7; perspective: 700px; z-index: 3; will-change: transform; translate: 0 0; transition: translate .35s cubic-bezier(.2,.8,.2,1), filter .4s; }
+.t2card.deck { z-index: 2; }
+.t2ci { position: absolute; inset: 0; transform-style: preserve-3d; transform: rotateY(180deg); transition: transform .55s cubic-bezier(.3,1.2,.5,1); }
+.t2card.up .t2ci { transform: rotateY(0deg); }
+.t2card .face, .t2card .back { position: absolute; inset: 0; border-radius: 9% / 6.4%; backface-visibility: hidden; -webkit-backface-visibility: hidden; overflow: hidden;
+  box-shadow: 0 6px 14px rgba(0,0,0,.45), 0 1px 2px rgba(0,0,0,.4); }
+.t2card .back { transform: rotateY(180deg); background:
+    repeating-linear-gradient(45deg, var(--back-line) 0 1px, transparent 1px 6px), repeating-linear-gradient(-45deg, var(--back-line) 0 1px, transparent 1px 6px), var(--back);
+  border: calc(var(--cw, 60px) * .055) solid #f6f3ec; outline: 1px solid var(--back-frame); outline-offset: calc(var(--cw, 60px) * -.09); }
+.t2card .face { background: linear-gradient(160deg, #fffdf6, #f1e9d6); }
+.t2card .f { position: absolute; inset: 0; color: #15121a; font-family: "Playfair Display", Georgia, serif; }
+.t2card .f.red { color: #b3162c; }
+.t2card .ix { position: absolute; display: flex; flex-direction: column; align-items: center; line-height: .9; }
+.t2card .ix.tl { left: 6%; top: 4%; }
+.t2card .ix.br { right: 6%; bottom: 4%; transform: rotate(180deg); }
+.t2card .ix b { font-weight: 700; font-size: calc(var(--cw, 60px) * .3); letter-spacing: -.04em; }
+.t2card .ix i { font-style: normal; font-size: calc(var(--cw, 60px) * .22); }
+.t2card .pip { position: absolute; inset: 0; display: grid; place-items: center; font-size: calc(var(--cw, 60px) * .62); line-height: 1; }
+.t2card .court .pip { flex-direction: column; font-size: calc(var(--cw, 60px) * .34); align-content: center; gap: 0; }
+.t2card .court .pip em { font-style: normal; font-weight: 700; font-size: calc(var(--cw, 60px) * .62); line-height: .9; }
+.t2card .court .face, .t2card .f.court::before { }
+.t2card .f.court::before { content: ''; position: absolute; inset: 22% 20%; border: 1px solid currentColor; border-radius: 6px; opacity: .22; }
+/* подсказка: совпавшие карты */
+.t2card.hl .face { box-shadow: 0 0 0 2px rgba(232,211,162,.95), 0 0 18px rgba(232,211,162,.55), 0 6px 14px rgba(0,0,0,.45); }
+.t2card.hl { translate: 0 -4px; }
+.t2card.turn { translate: 0 -10px; }
+.t2card.win .face { box-shadow: 0 0 0 2px #f6e8c8, 0 0 22px rgba(246,232,200,.7), 0 6px 14px rgba(0,0,0,.45); }
+.t2card.win { translate: 0 -6px; }
+.t2card.strong .face { animation: t2strongGlow 1.1s ease-in-out 3; }
+@keyframes t2strongGlow { 50% { box-shadow: 0 0 0 3px #fff6e2, 0 0 40px rgba(246,232,200,.95), 0 6px 14px rgba(0,0,0,.45); } }
+.t2card.dim { filter: brightness(.5) saturate(.6); }
+
+/* ── фишки: глина с полосками, толщина — тенью ── */
+.t2d .ch { position: absolute; left: 0; bottom: 0; width: var(--chip); height: var(--chip); border-radius: 50%;
+  background:
+    radial-gradient(circle, var(--c) 0 34%, rgba(255,255,255,.85) 34% 37%, var(--c) 37% 60%, transparent 61%),
+    repeating-conic-gradient(var(--s) 0 12deg, var(--c) 12deg 45deg);
+  box-shadow: 0 2px 0 color-mix(in srgb, var(--c) 55%, #000), 0 3px 5px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.35);
+  transform: translateY(calc(var(--i, 0) * -3.5px)); }
+.t2d .ch.fly { top: 0; bottom: auto; z-index: 5; }
+.t2d .ch.gold { --c: #c9a043; --s: #fff4d6; }
+.t2d .ch.violet { --c: #5b2a86; --s: #efe2c4; }
+.t2d .ch.blue { --c: #1d4fa8; --s: #efe2c4; }
+.t2d .ch.black { --c: #1c1a1d; --s: #e8d3a2; }
+.t2d .ch.green { --c: #1f6b45; --s: #efe2c4; }
+.t2d .ch.red { --c: #9b1d30; --s: #efe2c4; }
+.t2d .ch.white { --c: #e9e2d0; --s: #9b1d30; }
+.t2d .chips { display: flex; gap: 2px; align-items: flex-end; height: calc(var(--chip) + 18px); }
+.t2d .chips .col { position: relative; width: var(--chip); height: 100%; }
+.t2d-bet, .t2d-pot { position: absolute; left: 0; top: 0; display: flex; flex-direction: column; align-items: center; gap: 3px; z-index: 4;
+  opacity: 0; scale: .7; transition: opacity .35s, scale .45s cubic-bezier(.2,1.4,.4,1); }
+.t2d-bet.on, .t2d-pot.on { opacity: 1; scale: 1; }
+.t2d-bet b { padding: 2px 8px; border-radius: 999px; background: rgba(8,4,6,.72); border: 1px solid rgba(232,211,162,.25);
+  font: 700 11.5px "Playfair Display", Georgia, serif; color: #f6e8c8; font-variant-numeric: lining-nums tabular-nums; white-space: nowrap; }
+.t2d-pot { --chip: 26px; }
+
+/* кнопка дилера */
+.t2d-dealer { position: absolute; left: 0; top: 0; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; z-index: 4;
+  font: 800 11px var(--sans, sans-serif); color: #1a0f05; background: radial-gradient(circle at 40% 30%, #fff, #e8dfc8 70%);
+  box-shadow: 0 2px 0 #9c917a, 0 4px 8px rgba(0,0,0,.5); transition: opacity .4s; }
+.t2d-dealer.hidden { opacity: 0; }
+
+/* ── настроение: лобби, вход за стол, олл-ин ── */
+.t2d.lobby .t2d-table { transform: translate(-50%, -50%) scale(.9); filter: brightness(.55) saturate(.8); animation: t2breathe 9s ease-in-out infinite; }
+@keyframes t2breathe { 50% { transform: translate(-50%, -51%) scale(.92); } }
+.t2d.intro .t2d-table { animation: t2introIn 1.2s cubic-bezier(.2,.9,.2,1); }
+@keyframes t2introIn { from { transform: translate(-50%, -46%) scale(.86); opacity: .3; filter: brightness(.4); } }
+.t2d.allin .t2d-table { animation: t2allinZoom 2s cubic-bezier(.2,.8,.2,1); }
+@keyframes t2allinZoom { 25% { transform: translate(-50%, -50%) scale(1.035); } }
+
+@media (max-width: 700px) { .t2d { --chip: 18px; } .t2d-pot { --chip: 21px; } .t2d-bet b { font-size: 10.5px; } }
+@media (prefers-reduced-motion: reduce) { .t2d *, .t2d::before { animation: none !important; } }
+
+/* имя и фишки под печаткой */
+.t2d-seat { display: flex; flex-direction: column; align-items: center; }
+.t2d-seat .nm { margin-top: 5px; padding: 3px 10px 4px; border-radius: 10px; text-align: center; min-width: 74px;
+  background: rgba(10,5,7,.78); border: 1px solid rgba(232,211,162,.2); box-shadow: 0 6px 14px rgba(0,0,0,.45); }
+.t2d-seat .nm b { display: block; max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: italic 600 12px "Playfair Display", Georgia, serif; color: #f3e6c4; }
+.t2d-seat .nm i { display: block; font: 700 12px "Playfair Display", Georgia, serif; font-style: normal; color: #f6e8c8; font-variant-numeric: lining-nums tabular-nums; }
+.t2d-seat.active .nm { border-color: rgba(232,211,162,.6); box-shadow: 0 0 18px rgba(232,211,162,.3); }
+
+/* ── мой ход: сукно мягко светлеет под моими картами ── */
+.t2d .t2-felt .glow { position: absolute; left: 50%; bottom: -6%; width: 46%; height: 42%; transform: translateX(-50%); border-radius: 50%; pointer-events: none;
+  background: radial-gradient(ellipse at 50% 60%, rgba(255,236,190,.34), rgba(255,226,170,.12) 45%, transparent 72%); opacity: 0; transition: opacity .7s ease; }
+.t2d.tall .t2-felt .glow { width: 70%; height: 30%; bottom: -4%; }
+body.my-turn .t2d .t2-felt .glow { opacity: 1; animation: t2glow 2.8s ease-in-out infinite; }
+@keyframes t2glow { 50% { opacity: .7; } }
+
+/* ═════════ темы стола ═════════ */
+/* Монако: белое сукно, слоновая кость и золото, дневной свет казино */
+body.theme-monaco .t2d { background: radial-gradient(ellipse 60% 55% at 50% 42%, rgba(255,240,210,.16), transparent 70%), linear-gradient(180deg, #17120d 0%, #0d0a07 60%, #070504 100%); }
+body.theme-monaco .t2d .t2-rail { background: radial-gradient(ellipse at 50% 0%, rgba(255,255,255,.35), transparent 55%), linear-gradient(160deg, #efe6d2 0%, #cdbf9f 50%, #8e7c58 100%);
+  box-shadow: 0 40px 80px rgba(0,0,0,.6), 0 10px 22px rgba(0,0,0,.45), inset 0 2px 0 rgba(255,255,255,.6), inset 0 -3px 6px rgba(80,60,30,.45); }
+body.theme-monaco .t2d .t2-felt { box-shadow: 0 0 0 2px #c9a24f, 0 0 0 3px #6b5428, inset 0 0 0 1px rgba(255,255,255,.4), inset 0 10px 40px rgba(60,40,10,.28), inset 0 -6px 26px rgba(60,40,10,.2); }
+body.theme-monaco .t2d .t2-felt .weave { opacity: .22; }
+body.theme-monaco .t2d .t2-felt .line { border-color: rgba(150,110,40,.5); box-shadow: 0 0 0 5px rgba(150,110,40,.07); }
+body.theme-monaco .t2d .crest { color: rgba(110,80,30,.16); }
+body.theme-monaco .t2d .t2-felt .glow { background: radial-gradient(ellipse at 50% 60%, rgba(255,214,120,.42), rgba(255,214,120,.14) 45%, transparent 72%); }
+
+/* Вегас: фиолетовое сукно и неоновый борт */
+body.theme-vegas .t2d { background: radial-gradient(ellipse 60% 55% at 50% 42%, rgba(255,60,200,.10), transparent 70%), radial-gradient(ellipse at 50% 120%, rgba(40,200,255,.12), transparent 60%), linear-gradient(180deg, #0c0614 0%, #07030c 60%, #030106 100%); }
+body.theme-vegas .t2d .t2-rail { background: linear-gradient(160deg, #1d1028 0%, #120a1a 50%, #08040c 100%);
+  box-shadow: 0 0 0 2px #ff3fc8, 0 0 22px rgba(255,63,200,.55), 0 0 60px rgba(255,63,200,.22), 0 40px 80px rgba(0,0,0,.7), inset 0 0 0 2px rgba(64,220,255,.55), inset 0 0 18px rgba(64,220,255,.25);
+  animation: t2neon 4s ease-in-out infinite; }
+@keyframes t2neon { 50% { box-shadow: 0 0 0 2px #ff5fd2, 0 0 30px rgba(255,63,200,.7), 0 0 80px rgba(255,63,200,.3), 0 40px 80px rgba(0,0,0,.7), inset 0 0 0 2px rgba(90,230,255,.7), inset 0 0 24px rgba(64,220,255,.35); } }
+body.theme-vegas .t2d .t2-felt { box-shadow: 0 0 0 2px rgba(64,220,255,.8), inset 0 10px 40px rgba(0,0,0,.55), inset 0 -6px 26px rgba(0,0,0,.4); }
+body.theme-vegas .t2d .t2-felt .line { border-color: rgba(64,220,255,.55); box-shadow: 0 0 12px rgba(64,220,255,.35), inset 0 0 12px rgba(64,220,255,.2); }
+body.theme-vegas .t2d .crest { color: rgba(255,63,200,.22); text-shadow: 0 0 18px rgba(255,63,200,.45); }
+body.theme-vegas .t2d .t2-felt .glow { background: radial-gradient(ellipse at 50% 60%, rgba(120,230,255,.36), rgba(255,63,200,.14) 45%, transparent 72%); }
+
+/* Лондон: зелёное сукно, медь и тёмный орех клубной библиотеки */
+body.theme-london .t2d { background: radial-gradient(ellipse 60% 55% at 50% 42%, rgba(255,200,140,.11), transparent 70%), linear-gradient(180deg, #0d0c08 0%, #080705 60%, #040302 100%); }
+body.theme-london .t2d .t2-rail { background: radial-gradient(ellipse at 50% 0%, rgba(255,190,140,.25), transparent 55%), linear-gradient(160deg, #3a2414 0%, #24160c 50%, #120a05 100%);
+  box-shadow: 0 0 0 3px #b87333, 0 0 0 4px #4a2a12, 0 40px 80px rgba(0,0,0,.65), inset 0 2px 0 rgba(255,190,140,.3), inset 0 -3px 6px rgba(0,0,0,.6); }
+body.theme-london .t2d .t2-felt { box-shadow: 0 0 0 2px #c9864a, 0 0 0 3px #3a200c, inset 0 0 0 1px rgba(255,210,170,.12), inset 0 10px 40px rgba(0,0,0,.55), inset 0 -6px 26px rgba(0,0,0,.4); }
+body.theme-london .t2d .t2-felt .line { border-color: rgba(201,134,74,.5); box-shadow: 0 0 0 5px rgba(201,134,74,.06); }
+body.theme-london .t2d .crest { color: rgba(201,134,74,.16); }

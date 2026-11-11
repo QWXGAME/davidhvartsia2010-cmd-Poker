@@ -16,6 +16,8 @@ import { ITEM } from '../../shared/Catalog';
 import { Card3D, Cards3D } from './Cards3D';
 import { MAX_SEATS } from '../../shared/Table';
 import { POT, SEATS, boardSlot, BOARD_SCALE } from './layout';
+import type { TableHost, ScreenPos } from './host';
+import { setCardBack } from './textures';
 
 export interface WorldFx {
   deal(): void;
@@ -38,7 +40,8 @@ const potKey = 'pot';
 const stackKey = (v: number) => `stack${v}`;
 const betKey = (v: number) => `bet${v}`;
 
-export class World {
+export class World implements TableHost {
+  readonly kind = '3d' as const;
   readonly day: DayCycle;
   readonly stage: Stage;
   readonly room: Room;
@@ -99,6 +102,7 @@ export class World {
       this.hands.update(dt, this.myCards().length && !this.dealing ? this.peek : 0);
       this.buttons.update(t, dt);
       this.idleHabits(dt);
+      this.updateGlow(dt);
       // тени пересчитываются только пока что-то движется — в покое кадр почти бесплатный
       if (this.stage.tweens.busy || this.hands.busy || this.dragging || Math.abs(this.peekTarget - this.peek) > 0.002) this.stage.requestShadow(2);
     });
@@ -606,6 +610,36 @@ export class World {
     this.stage.requestShadow(2);
   }
 
+  // ── мой ход: сукно мягко светлеет под моими картами ──
+  private glow: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> | null = null;
+  private glowT = 0;
+  private updateGlow(dt: number) {
+    const v = this.prev;
+    const on = !!v && v.mySeat >= 0 && v.activeSeat === v.mySeat && v.stage !== 'HAND_OVER' && v.stage !== 'WAITING';
+    if (on && !this.glow) {
+      const c = document.createElement('canvas');
+      c.width = c.height = 128;
+      const g = c.getContext('2d')!;
+      const grd = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+      grd.addColorStop(0, 'rgba(255,236,190,0.55)'); grd.addColorStop(0.45, 'rgba(255,226,170,0.22)'); grd.addColorStop(1, 'rgba(255,220,160,0)');
+      g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(0.46, 0.34), new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+      m.rotation.x = -Math.PI / 2;
+      m.position.copy(SEATS[0].cards).setY(SEATS[0].cards.y + 0.0003);
+      m.renderOrder = 1;
+      this.glow = m;
+      this.stage.scene.add(m);
+    }
+    if (!this.glow) return;
+    this.glowT += dt;
+    const target = on ? 0.55 + Math.sin(this.glowT * 2.2) * 0.12 : 0;
+    const mat = this.glow.material;
+    mat.opacity += (target - mat.opacity) * Math.min(1, dt * (on ? 3 : 4));
+    this.glow.visible = mat.opacity > 0.004;
+  }
+
   private holePose(vi: number, i: number) {
     const g = SEATS[vi];
     if (vi === 0) {
@@ -760,6 +794,36 @@ export class World {
   // ───────────────────────── кастомизация ─────────────────────────
 
   setFelt(c: string) { this.room.setFelt(c); }
+  setBack(style: string) { setCardBack(style); }
+
+  // ── общий интерфейс стола (host.ts) ──
+  private tmpTop = new THREE.Vector3();
+  readonly plates = {
+    get visible() { return this.w.buttons.group.visible; },
+    set visible(v: boolean) { this.w.buttons.group.visible = v; },
+    set: (i: number, main: string, small: string, on: boolean) => this.buttons.set(i, main, small, on),
+    setLive: (v: boolean) => this.buttons.setLive(v),
+    press: (i: number) => this.buttons.press(i),
+    topY: (): number | null => {
+      if (!this.buttons.group.visible || innerWidth / innerHeight >= 1.25) return null;
+      let top = innerHeight;
+      const p = { x: 0, y: 0, visible: false };
+      for (const pl of this.buttons.plates) {
+        pl.root.getWorldPosition(this.tmpTop);
+        this.tmpTop.y += 0.09; this.tmpTop.z -= 0.05;   // верхний край кнопки
+        this.stage.project(this.tmpTop, p);
+        top = Math.min(top, p.y);
+      }
+      return top;
+    },
+    w: this as World,
+  };
+  seatScreen(seat: number, out: ScreenPos) { this.stage.project(this.seatAnchor(seat), out); }
+  boardScreen(out: ScreenPos) { this.stage.project(this.boardAnchor(), out); }
+  onFrame(cb: () => void) { this.stage.onFrame(cb); }
+  onLowPower(cb: (low: boolean) => void) { this.stage.onLowPower(cb); }
+  setOrbit(v: boolean) { this.stage.orbit = v; }
+  intro() { this.stage.intro(); }
   setRing(id: string) { this.hands.setRing(id); }
 
   /** якоря для HTML-плашек */

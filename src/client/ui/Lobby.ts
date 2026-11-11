@@ -47,7 +47,7 @@ export class Lobby {
 
   signedIn = false;
   /** открыть пункт общего меню (колесо, столы, приглашение) */
-  onOpen?: (k: 'wheel' | 'tables' | 'ref') => void;
+  onOpen?: (k: 'wheel' | 'tables' | 'ref' | 'tourney' | 'season') => void;
   private onlineCount = 0;
   private liveEl: HTMLElement | null = null;
   setOnline(n: number) {
@@ -162,8 +162,8 @@ export class Lobby {
     };
     tiles.append(
       tile(ICON.wheel, 'Колесо фортуны', () => this.onOpen?.('wheel')),
-      tile(ICON.tables, 'Открытые столы', () => this.onOpen?.('tables')),
-      tile(ICON.gift, 'Позвать друга', () => this.onOpen?.('ref')),
+      tile(ICON.moon, 'Ночь пятницы', () => this.onOpen?.('tourney')),
+      tile(ICON.ticket, 'Сезон', () => this.onOpen?.('season')),
     );
     // счётчик людей в клубе — обновляется раз в 15 секунд
     const live = h('button', 'lh-live st', `<i></i><span>${this.onlineCount ? `Сейчас в клубе: <b>${fmt(this.onlineCount)}</b>` : this.online() ? 'Клуб открыт' : 'Тренировочный режим'}</span><small>столы →</small>`) as HTMLButtonElement;
@@ -173,6 +173,8 @@ export class Lobby {
       ? 'Позови друзей ссылкой — ботов можно посадить на свободные места.'
       : 'Сервер клуба недоступен — играем тренировочный стол с ботами.');
     card.append(live, blinds, quick, friends, tiles, note);
+    // фишки кончились — обратный отсчёт до угощения заведения (текст обновляет меню раз в секунду)
+    if (p?.refillAt) live.after(h('div', 'qm-refill lh-refill st', ''));
     // плавное появление блоков по очереди
     card.querySelectorAll('.st').forEach((el, i) => ((el as HTMLElement).style.animationDelay = `${0.08 + i * 0.07}s`));
     this.el.append(card);

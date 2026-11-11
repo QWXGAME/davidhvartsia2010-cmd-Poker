@@ -325,15 +325,10 @@ export function cardFace(code: CardCode): THREE.Texture {
   return t;
 }
 
-/** Рубашки карт: фон, узор, рамка. Выбор игрока хранится в localStorage (pn.back). */
-export const CARD_BACKS: Record<string, { name: string; bg: string; line: string; frame: string; swatch: string }> = {
-  navy: { name: 'Полночь', bg: '#141a28', line: 'rgba(190,198,214,0.42)', frame: '#d6dce8', swatch: '#1d2638' },
-  bordeaux: { name: 'Бордо', bg: '#4a0f1d', line: 'rgba(226,190,120,0.40)', frame: '#d9b56a', swatch: '#5e1426' },
-  emerald: { name: 'Изумруд', bg: '#0d3326', line: 'rgba(214,196,140,0.38)', frame: '#cdb978', swatch: '#11452f' },
-  onyx: { name: 'Оникс', bg: '#0c0b0d', line: 'rgba(212,175,55,0.40)', frame: '#d4af37', swatch: '#1a171b' },
-};
+import { CARD_BACKS, currentBack as lookBack, saveBack } from '../looks';
+export { CARD_BACKS };
 let backTex: THREE.Texture | null = null;
-let backStyle = (() => { try { const v = localStorage.getItem('pn.back'); return v && CARD_BACKS[v] ? v : 'navy'; } catch { return 'navy'; } })();
+let backStyle = lookBack();
 export const currentBack = () => backStyle;
 
 function drawBack(g: CanvasRenderingContext2D, style: string) {
@@ -373,7 +368,7 @@ export function cardBack(): THREE.Texture {
 export function setCardBack(style: string) {
   if (!CARD_BACKS[style]) return;
   backStyle = style;
-  try { localStorage.setItem('pn.back', style); } catch { /* */ }
+  saveBack(style);
   if (!backTex) return;
   const c = backTex.image as HTMLCanvasElement;
   drawBack(c.getContext('2d')!, style);

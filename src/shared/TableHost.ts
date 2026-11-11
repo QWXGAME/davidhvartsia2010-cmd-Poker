@@ -3,7 +3,7 @@
 
 import { CardCode, IntRng } from './Cards';
 import { BOT_ROSTER, decayTilt, decide, thinkDelay, triggerTilt } from './Bots';
-import { ActionType, MAX_SEATS, Table, TableView } from './Table';
+import { ActionType, MAX_SEATS, Table, TableView, SeatStats } from './Table';
 
 export interface HandResult {
   handId: number;
@@ -25,7 +25,15 @@ export interface HostOptions {
   fair?: (deck: CardCode[]) => { hash: string; seed: string };
   onHandEnd?: (r: HandResult) => void;
   onCashout?: (id: string, amount: number) => void;
+  /** турнир: боты не докупаются, фишки не возвращаются на баланс, выбывшие встают из-за стола */
+  tourney?: boolean;
+  /** перед каждой раздачей (турнир: блайнды, пересадка) */
+  beforeHand?: () => void;
+  /** данные турнира для экрана игрока */
+  tourneyInfo?: () => TableView['tourney'];
 }
+
+interface Raw { hands: number; vpip: number; pfr: number; aggr: number; calls: number; won: number; lastHand: number; vp: boolean; pr: boolean }
 
 type Listener = (v: TableView) => void;
 
@@ -38,6 +46,8 @@ export class TableHost {
   /** игра идёт только после старта хозяином стола */
   started = false;
   owner: string;
+  /** статистика игроков за этим столом (сбрасывается, когда стол закрывается) */
+  private stats = new Map<string, Raw>();
 
   constructor(private o: HostOptions) {
     this.table = new Table(o.id, o.sb, o.bb, o.rng);
@@ -95,7 +105,28 @@ export class TableHost {
   private viewFor(id: string): TableView {
     const v = this.table.view(id);
     v.lobby = this.lobby();
+    for (const s of v.seats) if (s) s.stats = this.statsOf(s.id);
+    if (this.o.tourneyInfo) v.tourney = this.o.tourneyInfo();
     return v;
+  }
+
+  statsOf(id: string): SeatStats {
+    const r = this.stats.get(id);
+    if (!r || !r.hands) return { hands: 0, vpip: 0, pfr: 0, af: 0, won: 0 };
+    return { hands: r.hands, vpip: Math.round((r.vpip / r.hands) * 100), pfr: Math.round((r.pfr / r.hands) * 100), af: r.calls ? Math.round((r.aggr / r.calls) * 10) / 10 : r.aggr, won: r.won };
+  }
+
+  /** учёт действия для статистики: VPIP — добровольно вложил префлоп, PFR — рейз префлоп, AF — (ставки+рейзы)/коллы */
+  private track(seat: number, type: ActionType) {
+    const t = this.table;
+    const p = t.seats[seat];
+    if (!p) return;
+    const r = this.stats.get(p.id);
+    if (!r || r.lastHand !== t.handId) return;
+    const pre = t.stage === 'PREFLOP';
+    if (type === 'CALL' || type === 'RAISE' || type === 'ALLIN') { if (pre && !r.vp) { r.vp = true; r.vpip++; } }
+    if ((type === 'RAISE' || type === 'ALLIN') && pre && !r.pr) { r.pr = true; r.pfr++; }
+    if (!pre) { if (type === 'RAISE' || type === 'ALLIN') r.aggr++; else if (type === 'CALL') r.calls++; }
   }
 
   private emit() {
@@ -143,8 +174,9 @@ export class TableHost {
   action(id: string, type: ActionType, amount = 0): boolean {
     const p = this.table.byId(id);
     if (!p || p.seat !== this.table.activeSeat) return false;
+    const stage = this.table.stage;
     const ok = this.table.act(p.seat, type, amount);
-    if (ok) this.kick();
+    if (ok) { this.trackAfter(p.seat, type, stage); this.kick(); }
     return ok;
   }
 
@@ -157,6 +189,15 @@ export class TableHost {
   setItems(id: string, items: string[]) {
     const p = this.table.byId(id);
     if (p) { p.items = [...items]; this.emit(); }
+  }
+
+  /** статистика считается по улице, на которой было действие (после хода улица могла смениться) */
+  private trackAfter(seat: number, type: ActionType, stage: string) {
+    const t = this.table;
+    const cur = t.stage;
+    (t as unknown as { stage: string }).stage = stage;
+    this.track(seat, type);
+    (t as unknown as { stage: string }).stage = cur;
   }
 
   /** Сообщить подписчикам и запланировать следующий шаг. */
@@ -174,7 +215,7 @@ export class TableHost {
     const t = this.table;
 
     if (t.stage === 'WAITING') {
-      if (this.started && this.humans > 0 && t.canStart()) this.later(1200, () => this.startHand());
+      if (this.started && (this.humans > 0 || this.o.tourney) && t.canStart()) this.later(1200, () => this.startHand());
       else if (this.timer) { clearTimeout(this.timer); this.timer = null; }
       return;
     }
@@ -205,7 +246,8 @@ export class TableHost {
       this.later(thinkDelay(p.personality || 'TOURIST', hard), () => {
         if (t.activeSeat !== seat || t.seats[seat] !== p) return;
         const d = decide(t, seat);
-        t.act(seat, d.type, d.amount);
+        const stage = t.stage;
+        if (t.act(seat, d.type, d.amount)) this.trackAfter(seat, d.type, stage);
         this.kick();
       });
     } else {
@@ -221,10 +263,19 @@ export class TableHost {
 
   private startHand() {
     const t = this.table;
-    // боты, проигравшие стек, «докупаются» — стол не пустеет
-    for (const p of t.players()) if (p.isBot && p.stack < t.bb * 10) p.stack = t.bb * 100;
-    if (this.humans === 0) { t.stage = 'WAITING'; this.emit(); return; }
+    this.o.beforeHand?.();
+    // боты, проигравшие стек, «докупаются» — стол не пустеет (в турнире — нет)
+    if (!this.o.tourney) for (const p of t.players()) if (p.isBot && p.stack < t.bb * 10) p.stack = t.bb * 100;
+    if (this.humans === 0 && !this.o.tourney) { t.stage = 'WAITING'; this.emit(); return; }
+    if (!t.canStart()) { t.stage = 'WAITING'; this.emit(); return; }
     t.startHand(this.o.fair);
+    // статистика: новая рука у всех, кому раздали карты
+    for (const p of t.players()) {
+      if (!p.inHand) continue;
+      const r = this.stats.get(p.id) || { hands: 0, vpip: 0, pfr: 0, aggr: 0, calls: 0, won: 0, lastHand: -1, vp: false, pr: false };
+      r.hands++; r.lastHand = t.handId; r.vp = false; r.pr = false;
+      this.stats.set(p.id, r);
+    }
     this.kick();
   }
 
@@ -240,6 +291,7 @@ export class TableHost {
       if (!p.inHand && p.committed === 0) continue;
       const won = t.winners.filter(w => w.seat === p.seat).reduce((s, w) => s + w.amount, 0);
       deltas.set(p.id, won - p.committed);
+      if (won > p.committed) { const r = this.stats.get(p.id); if (r) r.won++; }
       potTotal += p.committed;
       if (!p.isBot) humans.push(p.id);
     }

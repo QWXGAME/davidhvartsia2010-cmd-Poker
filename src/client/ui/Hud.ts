@@ -1,10 +1,9 @@
-import * as THREE from 'three';
 // Интерфейс поверх 3D: плашки игроков, банк, кнопки действий, рейз, show/muck, бутик, тосты.
 
 import type { TableView, SeatView } from '../../shared/Table';
 import type { Profile } from '../../shared/Catalog';
 import { CATALOG } from '../../shared/Catalog';
-import type { World } from '../scene/World';
+import type { TableHost } from '../scene/host';
 import { MAX_SEATS } from '../../shared/Table';
 import { makeHint } from '../../shared/Hints';
 import { equity } from '../../shared/Bots';
@@ -15,6 +14,14 @@ const fmt = (n: number) => {
   if (n >= 10_000_000) return (n / 1_000_000).toFixed(1).replace('.', ',') + ' М';
   return Math.round(n).toLocaleString('ru-RU');
 };
+
+const esc = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
+function plural(n: number, one: string, few: string, many: string) {
+  const a = n % 10, b = n % 100;
+  if (a === 1 && b !== 11) return one;
+  if (a >= 2 && a <= 4 && (b < 10 || b >= 20)) return few;
+  return many;
+}
 
 const h = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', html = '') => {
   const el = document.createElement(tag);
@@ -53,7 +60,6 @@ export interface HudHandlers {
   press(): void;
   leave(): void;
   rebuy(): void;
-  music(): boolean;
   transfer(to: string, amount: number): void;
   history(): void;
 }
@@ -93,7 +99,6 @@ export class Hud {
   private sheet = h('div', 'sheet');
   private sheetBack = h('div', 'sheet-back');
   private bottomEl!: HTMLElement;
-  private plateAt = new THREE.Vector3();
   private inviteBtn!: HTMLButtonElement;
   private exitBtn!: HTMLButtonElement;
   private btnFold!: HTMLButtonElement;
@@ -112,8 +117,89 @@ export class Hud {
   onMyTurn?: () => void;
   onPreview?: (p: Profile) => void;
 
-  constructor(private world: World, private H: HudHandlers) {
+  // ── турнир: уровень, игроки, время до роста блайндов ──
+  private tourney: TableView['tourney'] | null = null;
+  private paintInfo() {
+    const v = this.view;
+    if (!v) return;
+    const el = this.tableInfo.lastChild as HTMLElement;
+    const t = this.tourney;
+    document.body.classList.toggle('in-tourney', !!t);
+    if (!t) { el.textContent = `${v.sb} / ${v.bb}`; return; }
+    const ms = Math.max(0, t.nextAt - Date.now());
+    el.innerHTML = `<b class="tn">${t.name}</b> · ${fmt(v.sb)}/${fmt(v.bb)} · ур. ${t.level} <i class="tl">↑ ${Math.floor(ms / 60_000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}</i> · осталось ${t.left}`;
+  }
+
+  // ── долгое нажатие на соперника — его статистика ──
+  private statsEl: HTMLElement | null = null;
+  private closeStats() {
+    const el = this.statsEl;
+    if (!el) return;
+    this.statsEl = null;
+    el.classList.remove('open');
+    setTimeout(() => el.remove(), 220);
+  }
+  private seatAt(x: number, y: number): number {
+    const v = this.view;
+    if (!v) return -1;
+    let best = -1, bestD = 70 * 70;
+    const p = { x: 0, y: 0, visible: false };
+    for (let i = 0; i < MAX_SEATS; i++) {
+      if (!v.seats[i] || i === v.mySeat) continue;
+      this.world.seatScreen(i, p);
+      if (!p.visible) continue;
+      const d = (p.x - x) ** 2 + (p.y - y) ** 2;
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    return best;
+  }
+  private showStats(seat: number) {
+    const s = this.view?.seats[seat];
+    if (!s) return;
+    this.closeStats();
+    const st = s.stats || { hands: 0, vpip: 0, pfr: 0, af: 0, won: 0 };
+    const style = st.hands < 8 ? 'мало рук — присматривайтесь' : st.vpip >= 40 ? (st.pfr >= 20 ? 'агрессивный, играет много' : 'играет много, часто коллирует') : st.vpip <= 18 ? (st.pfr >= 12 ? 'тайтовый и точный' : 'очень осторожный') : st.pfr >= 18 ? 'уверенный регуляр' : 'спокойный, без спешки';
+    const el = h('div', 'pstats', `
+      <div class="ph"><b>${esc(s.name)}</b><span>${fmt(st.hands)} ${plural(st.hands, 'рука', 'руки', 'рук')} за этим столом</span></div>
+      <div class="pg">
+        <div><b>${st.vpip}%</b><small>играет рук</small><i style="--p:${st.vpip}"></i></div>
+        <div><b>${st.pfr}%</b><small>рейзит до флопа</small><i style="--p:${st.pfr}"></i></div>
+        <div><b>${st.af}</b><small>агрессия</small><i style="--p:${Math.min(100, st.af * 25)}"></i></div>
+        <div><b>${fmt(st.won)}</b><small>выиграл банков</small></div>
+      </div>
+      <div class="pt">${style}</div>`);
+    const p = { x: 0, y: 0, visible: false };
+    this.world.seatScreen(seat, p);
+    el.style.left = Math.max(130, Math.min(innerWidth - 130, p.x)) + 'px';
+    el.style.top = Math.max(110, Math.min(innerHeight - 120, p.y)) + 'px';
+    el.onclick = () => this.closeStats();
+    document.body.appendChild(el);
+    this.statsEl = el;
+    requestAnimationFrame(() => el.classList.add('open'));
+    Telegram.haptic('tap');
+  }
+  private bindHold() {
+    let timer = 0, sx = 0, sy = 0;
+    const cancel = () => { clearTimeout(timer); timer = 0; };
+    addEventListener('pointerdown', e => {
+      if (this.statsEl && !(e.target as HTMLElement).closest('.pstats')) this.closeStats();
+      if (!this.view || (e.target as HTMLElement).closest('button, input, .sheet, .xfer, .qm-panel, .bottom, .actions')) return;
+      const seat = this.seatAt(e.clientX, e.clientY);
+      if (seat < 0) return;
+      sx = e.clientX; sy = e.clientY;
+      cancel();
+      timer = window.setTimeout(() => { timer = 0; this.showStats(seat); }, 480);
+    }, { passive: true });
+    addEventListener('pointermove', e => { if (timer && (e.clientX - sx) ** 2 + (e.clientY - sy) ** 2 > 100) cancel(); }, { passive: true });
+    addEventListener('pointerup', cancel, { passive: true });
+    addEventListener('pointercancel', cancel, { passive: true });
+    addEventListener('contextmenu', e => { if (this.view && this.seatAt(e.clientX, e.clientY) >= 0) e.preventDefault(); });
+  }
+
+  constructor(private world: TableHost, private H: HudHandlers) {
     document.body.appendChild(this.ui);
+    this.bindHold();
+    setInterval(() => { if (this.tourney) this.paintInfo(); }, 1000);
     this.buildTop();
     for (let i = 0; i < MAX_SEATS; i++) this.tags.push(this.buildTag());
     this.ui.appendChild(this.pot);
@@ -132,10 +218,6 @@ export class Hud {
     const shop = h('button', 'icon-btn', ICON.hat) as HTMLButtonElement;
     shop.title = 'VIP-бутик';
     shop.onclick = () => { this.openShop(true); Telegram.haptic('tap'); };
-    const music = h('button', 'icon-btn', ICON.note) as HTMLButtonElement;
-    music.title = 'Музыка';
-    music.onclick = () => { const on = this.H.music(); music.classList.toggle('off', !on); Telegram.haptic('tap'); };
-    try { if (localStorage.getItem('pn.music2') === '0') music.classList.add('off'); } catch { /* */ }
     const squeeze = h('button', 'icon-btn', ICON.card) as HTMLButtonElement;
     squeeze.title = 'Сквиз: карты закрыты, тяни вверх чтобы подсмотреть';
     const setSq = (v: boolean) => { this.world.squeezeMode = v; squeeze.classList.toggle('off', !v); };
@@ -168,7 +250,7 @@ export class Hud {
     bulb.onclick = () => { Telegram.haptic('tap'); this.toggleHints(); };
     this.hintBtn = bulb;
     // все кнопки живут в общем меню клуба (Menu.ts) — здесь только строка со ставками стола
-    void squeeze; void invite; void icons; void bulb; void send; void music; void shop; void exit;
+    void squeeze; void invite; void icons; void bulb; void send; void shop; void exit;
     bar.append(this.tableInfo);
     this.ui.appendChild(bar);
   }
@@ -337,7 +419,7 @@ export class Hud {
   private buildTransfer() {
     this.xfer.innerHTML = `
       <div class="head"><h2>Перевод фишек</h2><button class="x" aria-label="Закрыть">×</button></div>
-      <div class="sub">Получатель — Telegram-юзернейм игрока, который хоть раз входил в клуб через Telegram. Комиссия клуба 5%.</div>
+      <div class="sub">Получатель — Telegram-юзернейм игрока клуба, например @ivan_petrov. Комиссия клуба 5%.</div>
       <label>Кому<input class="to" placeholder="@username" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="33"></label>
       <label>Сколько<input class="amt" inputmode="numeric" placeholder="1 000" maxlength="10"></label>
       <div class="calc"></div>
@@ -358,9 +440,10 @@ export class Hud {
     this.xferBack.onclick = () => this.openTransfer(false);
     (this.xfer.querySelector('.go') as HTMLButtonElement).onclick = () => {
       const n = Number(amt.value.replace(/\D/g, '')) || 0;
-      const u = to.value.trim().replace(/^@/, '');
-      if (!u || !n) { this.toast('Укажите юзернейм и сумму', false); return; }
-      this.H.transfer(u, n);
+      const u = to.value.trim();
+      if (!u || !n) { this.toast('Укажите @username и сумму', false); return; }
+      const un = '@' + u.replace(/^@/, '');
+      this.H.transfer(un, n);
       Telegram.haptic('bet');
       amt.value = ''; calc.textContent = '';
       this.openTransfer(false);
@@ -372,7 +455,12 @@ export class Hud {
     if (open && !this.xfer.childElementCount) this.buildTransfer();
     if (open) this.H.history();
     const un = this.xfer.querySelector('.me-un') as HTMLElement | null;
-    if (un) un.textContent = this.profile?.username ? `Ваш юзернейм: @${this.profile.username} · баланс ${fmt(this.profile.balance)}` : 'Чтобы получать переводы, войдите через Telegram';
+    if (un) {
+      const name = this.profile?.username ? '@' + this.profile.username : '';
+      un.innerHTML = name ? `Ваш юзернейм: <b class="mycode">${name}</b> · баланс ${fmt(this.profile!.balance)}` : 'Чтобы получать переводы, задайте @username в настройках Telegram и войдите заново';
+      const b = un.querySelector('.mycode') as HTMLElement | null;
+      if (b && name) b.onclick = () => navigator.clipboard?.writeText(name).then(() => this.toast('Юзернейм скопирован', true), () => {});
+    }
     this.xfer.classList.toggle('open', open);
     this.xferBack.classList.toggle('open', open);
   }
@@ -384,7 +472,7 @@ export class Hud {
     box.innerHTML = items.length ? items.map(r => {
       const d = new Date(r.at);
       const when = `${d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' })} ${d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
-      const who = r.dir === 'out' ? `→ @${esc(r.to)}` : `← @${esc(r.from)}`;
+      const who = r.dir === 'out' ? `→ ${esc(r.to)}` : `← ${esc(r.from)}`;
       const sum = r.dir === 'out' ? `−${fmt(r.amount)}` : `+${fmt(r.amount - r.fee)}`;
       return `<div class="row ${r.dir}"><span>${who}<i>${when}</i></span><b>${sum}</b></div>`;
     }).join('') : '<div class="none">Переводов пока не было</div>';
@@ -413,8 +501,11 @@ export class Hud {
   /** Вне стола: прячем всё игровое. */
   home() {
     this.view = null;
+    this.tourney = null;
+    document.body.classList.remove('my-turn', 'in-tourney');
+    this.closeStats();
     this.rail.classList.add('hidden');
-    this.world.buttons.group.visible = false;
+    this.world.plates.visible = false;
     this.raiseBox.classList.add('hidden');
     this.revealBox.classList.add('hidden');
     this.rebuyBox.classList.add('hidden');
@@ -435,7 +526,8 @@ export class Hud {
   render(v: TableView) {
     const prev = this.view;
     this.view = v;
-    (this.tableInfo.lastChild as HTMLElement).textContent = `${v.sb} / ${v.bb}`;
+    this.tourney = v.tourney || null;
+    this.paintInfo();
 
     // плашки
     for (let i = 0; i < MAX_SEATS; i++) {
@@ -453,6 +545,7 @@ export class Hud {
     this.exitBtn.classList.toggle('hidden', !me);
     this.me.style.visibility = v.lobby && !v.lobby.started ? 'hidden' : '';
     const myTurn = !!me && v.activeSeat === v.mySeat;
+    document.body.classList.toggle('my-turn', myTurn && v.stage !== 'HAND_OVER' && v.stage !== 'WAITING');
     this.me.classList.toggle('hidden', !me);
     this.me.classList.toggle('active', myTurn);
     if (me) rollTo(this.meStack, me.stack, fmt); else this.meStack.textContent = '';
@@ -500,8 +593,6 @@ export class Hud {
       }
     }
     // борт с пластинами — всегда на месте, пока сидишь за столом; оживает на твоём ходу
-    // HTML-панель больше не показываем: действия — латунные таблички в борту стола (3D)
-    this.rail.classList.add('hidden');
     for (const b of [this.btnFold, this.btnCall, this.btnRaise]) b.disabled = !myTurn;
     this.pre.classList.toggle('hidden', myTurn || !inHand);
     if (!myTurn) this.raiseBox.classList.add('hidden');
@@ -521,7 +612,7 @@ export class Hud {
     // show / muck
     this.revealBox.classList.toggle('hidden', !v.canReveal);
     // докупиться
-    this.rebuyBox.classList.toggle('hidden', !(me && me.stack === 0 && (v.stage === 'HAND_OVER' || v.stage === 'WAITING' || !me.inHand)));
+    this.rebuyBox.classList.toggle('hidden', !!v.tourney || !(me && me.stack === 0 && (v.stage === 'HAND_OVER' || v.stage === 'WAITING' || !me.inHand)));
 
     // баннер победителя
     if (v.stage === 'HAND_OVER' && v.winners.length && this.bannerHand !== v.handId) {
@@ -583,8 +674,10 @@ export class Hud {
     const v = this.view;
     const me = v && v.mySeat >= 0 ? v.seats[v.mySeat] : null;
     const atTable = !!me && !!v?.lobby?.started;
-    const B = this.world.buttons;
-    B.group.visible = atTable;
+    const B = this.world.plates;
+    B.visible = atTable;
+    // 2D: кнопки действий — обычные кнопки внизу экрана; 3D — таблички в борту стола
+    this.rail.classList.toggle('hidden', this.world.kind === '3d' || !atTable);
     const read = (b: HTMLButtonElement) => {
       const small = b.querySelector('small')?.textContent || '';
       const main = (b.childNodes[0]?.textContent || b.textContent || '').trim();
@@ -595,6 +688,8 @@ export class Hud {
       B.set(i, main.toUpperCase(), small, !b.disabled);
     });
     B.setLive(!!v && v.activeSeat === v.mySeat && v.mySeat >= 0);
+    // 2D: кнопки выезжают только на моём ходу
+    this.rail.classList.toggle('live', !!v && v.activeSeat === v.mySeat && v.mySeat >= 0 && v.stage !== 'HAND_OVER');
   }
 
   private setPre(m: 'none' | 'checkfold' | 'call') {
@@ -650,15 +745,15 @@ export class Hud {
   frame() {
     const v = this.view;
     if (!v) return;
-    const st = this.world.stage;
     for (let i = 0; i < MAX_SEATS; i++) {
       const s = v.seats[i];
       const t = this.tags[i];
       if (!s || i === v.mySeat) continue;
-      st.project(this.world.seatAnchor(i), this.pos);
+      this.world.seatScreen(i, this.pos);
       if (this.pos.visible) {
         const half = (t.root.offsetWidth || 100) / 2 + 6;
-        const top = (t.root.offsetHeight || 60) + 56;
+        // 3D: не залезать под верхнюю строку; 2D: над печаткой только короткая надпись действия
+        const top = this.world.kind === '2d' ? (t.root.offsetHeight || 24) + 4 : (t.root.offsetHeight || 60) + 56;
         const x = Math.max(half, Math.min(innerWidth - half, this.pos.x));
         const y = Math.max(top, this.pos.y);
         t.root.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0) translate(-50%, -100%)`;
@@ -673,21 +768,15 @@ export class Hud {
       }
     }
     // телефон (портрет): панель ставки и баланс всегда над 3D-кнопками в борту — не закрывают «Поставить»
-    if (innerWidth / innerHeight < 1.25 && this.world.buttons.group.visible) {
-      let top = innerHeight;
-      for (const p of this.world.buttons.plates) {
-        p.root.getWorldPosition(this.plateAt);
-        this.plateAt.y += 0.09; this.plateAt.z -= 0.05;   // верхний край кнопки
-        st.project(this.plateAt, this.pos);
-        top = Math.min(top, this.pos.y);
-      }
+    const top = this.world.plates.topY();
+    if (top !== null) {
       this.bottomEl.style.bottom = `${Math.max(14, innerHeight - top + 10).toFixed(0)}px`;
       this.bottomEl.classList.toggle('raising', !this.raiseBox.classList.contains('hidden'));
     } else {
       this.bottomEl.style.bottom = '';
       this.bottomEl.classList.remove('raising');
     }
-    st.project(this.world.boardAnchor(), this.pos);
+    this.world.boardScreen(this.pos);
     // банк — над общими картами
     this.pot.style.transform = `translate3d(${this.pos.x.toFixed(1)}px, ${(this.pos.y - 26).toFixed(1)}px, 0) translate(-50%, -100%)`;
   }

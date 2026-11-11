@@ -3,7 +3,8 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { DEFAULT_EQUIPPED, DEFAULT_OWNED, Equipped, ITEM, Profile, toggleEquip, WHEEL, WHEEL_COOLDOWN, REF_BONUS } from '../shared/Catalog';
+import { DEFAULT_EQUIPPED, DEFAULT_OWNED, Equipped, ITEM, Profile, toggleEquip, WHEEL, WHEEL_COOLDOWN, REF_BONUS, SEASON, seasonId, levelOf, REFILL, UNLOCKS, UNLOCK_IDS } from '../shared/Catalog';
+import type { AdminUser } from '../shared/Catalog';
 import * as crypto from 'node:crypto';
 
 // папка с балансами и аккаунтами; на хостинге — постоянный диск (DATA_DIR)
@@ -17,6 +18,20 @@ function writeJson(file: string, data: unknown) {
   const p = path.join(DATA, file);
   fs.writeFileSync(p + '.tmp', JSON.stringify(data, null, 1));
   fs.renameSync(p + '.tmp', p);
+}
+
+/** Код аккаунта для переводов: QWX- и 6 знаков без похожих символов (0/O, 1/I). Постоянный, выводится из id. */
+const CODE_ABC = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+export function accountCode(id: string) {
+  const h = crypto.createHash('sha256').update('acc:' + id).digest();
+  let s = '';
+  for (let i = 0; i < 6; i++) s += CODE_ABC[h[i] % CODE_ABC.length];
+  return 'QWX-' + s;
+}
+/** привести введённое к виду QWX-XXXXXX: пробелы, регистр, без префикса — всё прощаем */
+export function normCode(raw: string) {
+  const s = raw.toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^QWX/, '');
+  return s.length === 6 ? 'QWX-' + s : '';
 }
 
 /** короткий код приглашения игрока (детерминированный, из id) */
@@ -41,7 +56,20 @@ export interface User {
   refBy?: string;
   refs?: number;
   wheelAt?: number;
+  /** сезонный пропуск */
+  xp?: number;
+  season?: string;
+  seasonClaimed?: number;
+  unlocks?: string[];
+  /** когда фишки кончились (для пополнения через перерыв) */
+  brokeAt?: number;
+  /** последний вход в игру */
+  lastSeen?: number;
 }
+
+/** владельцы клуба: Telegram-юзернеймы через запятую (переменная ADMIN_USERNAMES) */
+const ADMINS = new Set((process.env.ADMIN_USERNAMES || '').split(',').map(s => s.trim().replace(/^@/, '').toLowerCase()).filter(Boolean));
+export const isAdmin = (u: { username?: string; id: string }) => (!!u.username && ADMINS.has(u.username.toLowerCase())) || ADMINS.has(u.id.toLowerCase());
 
 export const ECONOMY = {
   START: 15000,
@@ -116,6 +144,12 @@ class Store {
       id: u.id, name: u.name, balance: u.balance, owned: [...u.owned], equipped: { items: [...u.equipped.items] }, username: u.username || undefined,
       stats: { hands: u.handsPlayed, wins: u.wins || 0, biggestPot: u.biggestPot || 0, refs: u.refs || 0 },
       refCode: refCode(u.id),
+      code: accountCode(u.id),
+      xp: u.season === seasonId() ? u.xp || 0 : 0,
+      season: seasonId(),
+      unlocks: [...(u.unlocks || [])],
+      admin: isAdmin(u) || undefined,
+      refillAt: u.brokeAt ? u.brokeAt + REFILL.WAIT : 0,
       wheelAt: Math.max(0, (u.wheelAt || 0) + WHEEL_COOLDOWN - Date.now()) ? (u.wheelAt || 0) + WHEEL_COOLDOWN : 0,
     };
   }
@@ -198,6 +232,74 @@ class Store {
     return `🥃 +${ECONOMY.BONUS.toLocaleString('ru-RU')} фишек. Баланс: ${u.balance.toLocaleString('ru-RU')}`;
   }
 
+  // ───── сезонный пропуск ─────
+
+  /** Начислить опыт сезона; выдаёт награды за новые уровни. Возвращает тексты для игрока. */
+  addXp(u: User, n: number): string[] {
+    const sid = seasonId();
+    if (u.season !== sid) { u.season = sid; u.xp = 0; u.seasonClaimed = 1; }
+    u.xp = (u.xp || 0) + n;
+    const lvl = levelOf(u.xp);
+    const out: string[] = [];
+    for (let l = (u.seasonClaimed || 1) + 1; l <= lvl; l++) {
+      const r = SEASON.REWARDS[l];
+      out.push(`Сезонный пропуск: уровень ${l}!`);
+      if (r?.chips) { u.balance += r.chips; out.push(`Награда: +${r.chips.toLocaleString('ru-RU')} фишек`); }
+      if (r?.unlock && this.unlock(u, r.unlock)) out.push(`Награда: ${UNLOCKS.find(x => x.id === r.unlock)?.name}`);
+    }
+    u.seasonClaimed = Math.max(u.seasonClaimed || 1, lvl);
+    return out;
+  }
+
+  unlock(u: User, id: string): boolean {
+    if (!UNLOCK_IDS.has(id)) return false;
+    u.unlocks ??= [];
+    if (u.unlocks.includes(id)) return false;
+    u.unlocks.push(id);
+    return true;
+  }
+
+  // ───── фишки кончились: перерыв 30 минут, потом +1 000 ─────
+
+  /** true — только что угостили */
+  refill(u: User): boolean {
+    const total = u.balance + u.tableStack;
+    if (total >= REFILL.BELOW) { if (u.brokeAt) { u.brokeAt = 0; this.save(); } return false; }
+    if (u.tableStack > 0) return false;           // ещё играет остатком за столом
+    if (!u.brokeAt) { u.brokeAt = Date.now(); this.save(); return false; }
+    if (Date.now() - u.brokeAt < REFILL.WAIT) return false;
+    u.balance += REFILL.AMOUNT;
+    u.brokeAt = 0;
+    this.save();
+    return true;
+  }
+
+  // ───── админ-панель ─────
+
+  adminView(u: User, online: boolean): AdminUser {
+    return { id: u.id, name: u.name, username: u.username || '', balance: u.balance, tableStack: u.tableStack, hands: u.handsPlayed, wins: u.wins || 0,
+      xp: u.season === seasonId() ? u.xp || 0 : 0, unlocks: [...(u.unlocks || [])], createdAt: u.createdAt, online, lastSeen: u.lastSeen || u.createdAt, code: accountCode(u.id) };
+  }
+  /** поиск по @username, коду аккаунта QWX-… или id */
+  findAny(q: string) {
+    const s = q.trim();
+    if (!s) return undefined;
+    return this.users.get(s) || (normCode(s) ? this.findByCode(s) : undefined) || this.findByUsername(s);
+  }
+  allUsers() { return [...this.users.values()]; }
+  adminLog(entry: Record<string, unknown>) {
+    const log = readJson<Record<string, unknown>[]>('admin.json', []);
+    log.push({ at: Date.now(), ...entry });
+    writeJson('admin.json', log.slice(-2000));
+  }
+
+  findByCode(code: string) {
+    const c = normCode(code);
+    if (!c) return undefined;
+    for (const u of this.users.values()) if (accountCode(u.id) === c) return u;
+    return undefined;
+  }
+
   findByUsername(name: string) {
     const n = name.replace(/^@/, '').toLowerCase();
     for (const u of this.users.values()) if (u.username.toLowerCase() === n) return u;
@@ -205,7 +307,7 @@ class Store {
   }
 
   /**
-   * Перевод фишек по Telegram @username. Атомарно (на время операции отправитель заблокирован),
+   * Перевод фишек по коду аккаунта (QWX-XXXXXX) или по Telegram @username. Атомарно (на время операции отправитель заблокирован),
    * комиссия клуба 5% сжигается — это гасит «перекачку» фишек между своими аккаунтами.
    */
   transfer(fromId: string, toName: string, amount: number): { ok: boolean; text: string; to?: string } {
@@ -213,40 +315,48 @@ class Store {
     this.busy.add(fromId);
     try {
       const a = this.users.get(fromId);
-      const name = toName.trim().replace(/^@/, '');
-      const b = this.findByUsername(name);
+      const raw = toName.trim();
+      const byCode = !raw.startsWith('@') && !!normCode(raw);
+      const name = raw.replace(/^@/, '');
+      const b = byCode ? this.findByCode(raw) : this.findByUsername(name);
       if (!a) return { ok: false, text: 'Сначала войдите в клуб' };
-      if (!/^[A-Za-z0-9_]{3,32}$/.test(name)) return { ok: false, text: 'Укажите Telegram-юзернейм, например @ivan_petrov' };
-      if (!b) return { ok: false, text: `@${name} ещё не входил в клуб через Telegram` };
+      if (!byCode && !/^[A-Za-z0-9_]{3,32}$/.test(name)) return { ok: false, text: 'Укажите Telegram-юзернейм получателя, например @ivan_petrov' };
+      if (!b) return { ok: false, text: byCode ? `Аккаунт ${normCode(raw)} не найден — проверьте код` : `@${name} ещё не входил в клуб через Telegram` };
       if (a.id === b.id) return { ok: false, text: 'Себе переводить нельзя' };
       if (!Number.isInteger(amount) || amount < ECONOMY.MIN_TRANSFER) return { ok: false, text: `Минимум — ${ECONOMY.MIN_TRANSFER.toLocaleString('ru-RU')} фишек` };
       if (a.balance < amount) return { ok: false, text: `Не хватает фишек. Баланс: ${a.balance.toLocaleString('ru-RU')}` };
       const fee = Math.floor(amount * ECONOMY.FEE);
       a.balance -= amount;
       b.balance += amount - fee;
-      this.log.push({ at: Date.now(), from: a.id, to: b.id, fromName: a.username || a.name, toName: b.username || b.name, amount, fee });
+      this.log.push({ at: Date.now(), from: a.id, to: b.id, fromName: a.username ? '@' + a.username : a.name, toName: b.username ? '@' + b.username : b.name, amount, fee });
       if (this.log.length > 5000) this.log.splice(0, this.log.length - 5000);
       writeJson('transfers.json', this.log);
       this.save();
-      return { ok: true, to: b.id, text: `Отправлено @${b.username}: ${(amount - fee).toLocaleString('ru-RU')} (комиссия клуба ${fee.toLocaleString('ru-RU')})` };
+      return { ok: true, to: b.id, text: `Отправлено ${b.username ? '@' + b.username : b.name}: ${(amount - fee).toLocaleString('ru-RU')} (комиссия клуба ${fee.toLocaleString('ru-RU')})` };
     } finally {
       this.busy.delete(fromId);
     }
   }
 
-  recordHand(ids: string[], stacks: Map<string, number>, deltas?: Map<string, number>, pot = 0) {
+  /** записать раздачу; возвращает тексты наград сезона по игрокам */
+  recordHand(ids: string[], stacks: Map<string, number>, deltas?: Map<string, number>, pot = 0): Map<string, string[]> {
     const now = Date.now();
+    const msgs = new Map<string, string[]>();
     for (const id of ids) {
       const u = this.users.get(id);
       if (!u) continue;
       u.handsPlayed++;
-      if ((deltas?.get(id) ?? 0) > 0) { u.wins = (u.wins || 0) + 1; u.biggestPot = Math.max(u.biggestPot || 0, pot); }
+      const won = (deltas?.get(id) ?? 0) > 0;
+      if (won) { u.wins = (u.wins || 0) + 1; u.biggestPot = Math.max(u.biggestPot || 0, pot); }
+      const m = this.addXp(u, SEASON.XP_HAND + (won ? SEASON.XP_WIN : 0));
+      if (m.length) msgs.set(id, m);
       if (stacks.has(id)) u.tableStack = stacks.get(id)!;
       for (const o of ids) if (o !== id) u.recentOpponents[o] = now;
       // чистим старые записи
       for (const [k, t] of Object.entries(u.recentOpponents)) if (now - t > ECONOMY.SAME_TABLE_BLOCK) delete u.recentOpponents[k];
     }
     this.save();
+    return msgs;
   }
 
   grantRing(id: string, ring: string) {

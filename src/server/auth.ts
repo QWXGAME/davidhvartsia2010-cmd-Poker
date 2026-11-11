@@ -1,19 +1,21 @@
-// Вход через Google: клиент получает ID-токен (Google Identity Services), сервер проверяет подпись
-// по открытым ключам Google и выдаёт свой сессионный токен (HMAC, 30 дней). Гостей нет.
+// Вход только через Telegram: виджет входа на сайте и автоматический вход в мини-приложении.
+// Сервер проверяет подпись Telegram и выдаёт свой сессионный токен (HMAC, 30 дней). Гостей нет.
 //
-//   GOOGLE_CLIENT_ID — OAuth Client ID (тип «Web application») из Google Cloud Console
-//   SESSION_SECRET   — секрет для подписи сессий (если не задан — создаётся в data/secret.key)
+//   TELEGRAM_BOT_TOKEN — токен бота от @BotFather
+//   TELEGRAM_BOT_NAME  — логин бота без @ (домен игры задаётся у @BotFather: /setdomain)
+//   SESSION_SECRET     — секрет для подписи сессий (если не задан — создаётся в data/secret.key)
 
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-export const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
+/** вход через Google отключён — только Telegram */
+export const GOOGLE_CLIENT_ID = '';
 //   TELEGRAM_BOT_TOKEN / TELEGRAM_BOT_NAME — бот для входа через Telegram (домен сайта задаётся у @BotFather: /setdomain)
 export const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
 export const TELEGRAM_BOT_NAME = (process.env.TELEGRAM_BOT_NAME || '').replace(/^@/, '');
 /** вход обязателен, если настроен хотя бы один способ */
-export const LOGIN_REQUIRED = !!GOOGLE_CLIENT_ID || !!(TELEGRAM_BOT_TOKEN && TELEGRAM_BOT_NAME);
+export const LOGIN_REQUIRED = !!(TELEGRAM_BOT_TOKEN && TELEGRAM_BOT_NAME);
 
 // папка с балансами и аккаунтами; на хостинге — постоянный диск (DATA_DIR)
 const DATA = process.env.DATA_DIR || path.join(process.cwd(), 'data');
@@ -89,6 +91,26 @@ export function verifyTelegram(data: Record<string, unknown>): TelegramUser | nu
   if (Date.now() / 1000 - Number(data.auth_date) > 86400) return null;
   const name = String(data.first_name || data.username || 'Игрок');
   return { id: String(data.id), name };
+}
+
+/**
+ * Вход из мини-приложения Telegram: проверяем подпись initData (секрет = HMAC("WebAppData", токен бота)).
+ * Подделать нельзя — подпись знает только Telegram и наш сервер. Данные действительны 7 дней.
+ */
+export function verifyTelegramWebApp(initData: string): (TelegramUser & { username: string }) | null {
+  if (!TELEGRAM_BOT_TOKEN || !initData || initData.length > 4096) return null;
+  const p = new URLSearchParams(initData);
+  const hash = p.get('hash') || '';
+  p.delete('hash');
+  const dcs = [...p.entries()].map(([k, v]) => `${k}=${v}`).sort().join('\n');
+  const secret = crypto.createHmac('sha256', 'WebAppData').update(TELEGRAM_BOT_TOKEN).digest();
+  const want = crypto.createHmac('sha256', secret).update(dcs).digest('hex');
+  if (hash.length !== want.length || !crypto.timingSafeEqual(Buffer.from(hash), Buffer.from(want))) return null;
+  if (Date.now() / 1000 - Number(p.get('auth_date')) > 7 * 86400) return null;
+  let user: { id?: number; first_name?: string; username?: string } = {};
+  try { user = JSON.parse(p.get('user') || '{}'); } catch { return null; }
+  if (!user.id) return null;
+  return { id: String(user.id), name: String(user.first_name || user.username || 'Игрок'), username: String(user.username || '') };
 }
 
 // ───────────── свои сессии: id.срок.подпись ─────────────

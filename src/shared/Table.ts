@@ -55,7 +55,11 @@ export interface SeatView {
   isBot: boolean;
   ring?: string;
   items?: string[];
+  /** статистика за этим столом: руки, VPIP %, PFR %, агрессия */
+  stats?: SeatStats;
 }
+
+export interface SeatStats { hands: number; vpip: number; pfr: number; af: number; won: number }
 
 export interface LobbyInfo {
   id: string;
@@ -68,6 +72,8 @@ export interface LobbyInfo {
 
 export interface TableView {
   lobby?: LobbyInfo;
+  /** турнирный стол: уровень блайндов, сколько игроков осталось, когда следующий уровень */
+  tourney?: { name: string; level: number; left: number; nextAt: number; place?: number };
   tableId: string;
   handId: number;
   stage: Stage;
