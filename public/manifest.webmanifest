@@ -1,0 +1,17 @@
+{
+  "name": "QWX POKER — закрытый клуб",
+  "short_name": "QWX POKER",
+  "description": "Texas Hold'em 6-max: кино-покер с друзьями",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#050203",
+  "theme_color": "#050203",
+  "lang": "ru",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
