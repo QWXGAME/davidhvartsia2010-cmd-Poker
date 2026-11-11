@@ -4,14 +4,29 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="theme-color" content="#050203" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="QWX POKER" />
   <title>QWX POKER — закрытый клуб</title>
+  <!-- скрипт Telegram грузим только когда игра открыта как мини-приложение (в обычном браузере — лишний запрос) -->
+  <script>if (/tgWebApp/.test(location.hash + location.search) || window.TelegramWebviewProxy) document.write('<script src="https://telegram.org/js/telegram-web-app.js"><\/script>');</script>
   <meta name="description" content="Подпольный покер-клуб в 3D: Texas Hold'em с друзьями прямо в браузере" />
   <!-- самое тяжёлое качаем сразу, параллельно с кодом: модель рук, их текстуры, сукно и бортик -->
-  <link rel="preload" href="models/hands.bin" as="fetch" crossorigin />
-  <link rel="preload" href="models/hand_diffuse.jpg" as="image" />
-  <link rel="preload" href="textures/manifest.json" as="fetch" crossorigin />
-  <link rel="preload" href="textures/felt-56172a-2048.map.webp" as="image" />
-  <link rel="preload" href="textures/railwood-1024.map.webp" as="image" />
+  <script>
+    // 3D-режим: самое тяжёлое качаем сразу, параллельно с кодом. В 2D эти файлы не нужны — не качаем.
+    (function () {
+      var v = ''; try { v = localStorage.getItem('pn.view') || ''; } catch (e) {}
+      if (v === '2d') return;
+      [['models/hands.bin', 'fetch'], ['models/hand_diffuse.jpg', 'image'], ['textures/manifest.json', 'fetch'],
+       ['textures/felt-56172a-2048.map.webp', 'image'], ['textures/railwood-1024.map.webp', 'image']].forEach(function (f) {
+        var l = document.createElement('link'); l.rel = 'preload'; l.href = f[0]; l.as = f[1]; if (f[1] === 'fetch') l.crossOrigin = 'anonymous';
+        document.head.appendChild(l);
+      });
+    })();
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <!-- шрифты: Bodoni Moda — заголовки клуба, Manrope — интерфейс, Playfair — индексы карт и надписи кнопок -->
